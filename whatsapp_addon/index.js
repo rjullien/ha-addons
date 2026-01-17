@@ -19,9 +19,26 @@ app.use(bodyParser.json());
 
 const clients = {};
 
+// Helper function for safe axios calls with retry
+const safeAxiosPost = async (url, data, config, retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await axios.post(url, data, config);
+      return;
+    } catch (error) {
+      const status = error.response?.status || 'unknown';
+      logger.warn(`Axios POST to ${url} failed (attempt ${i + 1}/${retries}): ${status} - ${error.message}`);
+      if (i < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // exponential backoff
+      }
+    }
+  }
+  logger.error(`Axios POST to ${url} failed after ${retries} attempts`);
+};
+
 const onReady = (key) => {
   logger.info(key, "client is ready.");
-  axios.post(
+  safeAxiosPost(
     "http://supervisor/core/api/services/persistent_notification/dismiss",
     {
       notification_id: `whatsapp_addon_qrcode_${key}`,
@@ -44,7 +61,7 @@ const onQr = (qr, key) => {
 
   code.on("readable", function () {
     var img_string = code.read().toString("base64");
-    axios.post(
+    safeAxiosPost(
       "http://supervisor/core/api/services/persistent_notification/create",
       {
         title: `Whatsapp QRCode (${key})`,
@@ -61,7 +78,7 @@ const onQr = (qr, key) => {
 };
 
 const onMsg = (msg, key) => {
-  axios.post(
+  safeAxiosPost(
     "http://supervisor/core/api/events/new_whatsapp_message",
     { clientId: key, ...msg },
     {
@@ -74,7 +91,7 @@ const onMsg = (msg, key) => {
 };
 
 const onPresenceUpdate = (presence, key) => {
-  axios.post(
+  safeAxiosPost(
     "http://supervisor/core/api/events/whatsapp_presence_update",
     { clientId: key, ...presence },
     {
